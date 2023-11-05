@@ -3,7 +3,7 @@ module github.com/kubeflow/kubeflow/components/access-management
 go 1.16
 
 require (
-	github.com/gorilla/mux v1.7.2
+	github.com/gorilla/mux v1.8.1
 	github.com/pluralsh/kubeflow-profile-controller v0.0.0-20210809114424-ef7e43acb86e
 	github.com/prometheus/client_golang v1.11.0
 	github.com/sirupsen/logrus v1.8.1
