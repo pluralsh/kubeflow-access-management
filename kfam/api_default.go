@@ -14,8 +14,10 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/url"
+	"os"
 	"path"
 	"strconv"
+	"strings"
 	"time"
 
 	profileRegister "github.com/kubeflow/kubeflow/components/access-management/pkg/apis/kubeflow/v2alpha1"
@@ -36,6 +38,8 @@ import (
 type KfamV1Alpha1Interface interface {
 	CreateBinding(w http.ResponseWriter, r *http.Request)
 	CreateProfile(w http.ResponseWriter, r *http.Request)
+	ListProfiles(w http.ResponseWriter, r *http.Request)
+	ArgoListProfiles(w http.ResponseWriter, r *http.Request)
 	DeleteBinding(w http.ResponseWriter, r *http.Request)
 	DeleteProfile(w http.ResponseWriter, r *http.Request)
 	ReadBinding(w http.ResponseWriter, r *http.Request)
@@ -108,8 +112,8 @@ func (c *KfamV1Alpha1Client) CreateBinding(w http.ResponseWriter, r *http.Reques
 	if err := json.NewDecoder(r.Body).Decode(&binding); err != nil {
 		IncRequestErrorCounter("decode request error", "", action, r.URL.Path,
 			SEVERITY_MAJOR)
-		writeResponse(w, []byte(err.Error()))
 		w.WriteHeader(http.StatusForbidden)
+		writeResponse(w, []byte(err.Error()))
 		return
 	}
 	// check permission before create binding
@@ -138,8 +142,8 @@ func (c *KfamV1Alpha1Client) CreateProfile(w http.ResponseWriter, r *http.Reques
 	if err := json.NewDecoder(r.Body).Decode(&profile); err != nil {
 		IncRequestErrorCounter("decode error", "", action, r.URL.Path,
 			SEVERITY_MAJOR)
-		writeResponse(w, []byte(err.Error()))
 		w.WriteHeader(http.StatusForbidden)
+		writeResponse(w, []byte(err.Error()))
 		return
 	}
 	_, err := c.profileClient.Create(&profile)
@@ -154,6 +158,109 @@ func (c *KfamV1Alpha1Client) CreateProfile(w http.ResponseWriter, r *http.Reques
 	w.WriteHeader(http.StatusOK)
 }
 
+func (c *KfamV1Alpha1Client) ListProfiles(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
+	const action = "list"
+
+	profList, err := c.profileClient.List(metav1.ListOptions{})
+	if err != nil {
+		IncRequestErrorCounter(err.Error(), "", action, r.URL.Path,
+			SEVERITY_MAJOR)
+		w.WriteHeader(http.StatusForbidden)
+		writeResponse(w, []byte(err.Error()))
+		return
+	}
+	result, err := json.Marshal(profList.Items)
+	if err != nil {
+		IncRequestErrorCounter(err.Error(), "", action, r.URL.Path,
+			SEVERITY_MAJOR)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	IncRequestCounter("", "", action, r.URL.Path)
+	if writeResponse(w, result) {
+		w.WriteHeader(http.StatusOK)
+	} else {
+		w.WriteHeader(http.StatusInternalServerError)
+	}
+}
+
+type Output struct {
+	// Parameters is the list of parameter sets returned by the plugin.
+	Parameters []map[string]interface{} `json:"parameters"`
+}
+
+// ServiceResponse is the response object returned by the plugin service.
+type ServiceResponse struct {
+	// Output is the map of outputs returned by the plugin.
+	Output Output `json:"output"`
+}
+
+func (c *KfamV1Alpha1Client) ArgoListProfiles(w http.ResponseWriter, r *http.Request) {
+	const action = "list"
+
+	argoToken := os.Getenv("ARGO_TOKEN")
+
+	if argoToken == "" {
+		IncRequestErrorCounter("Unauthorized", "", action, r.URL.Path,
+			SEVERITY_MAJOR)
+		w.WriteHeader(http.StatusUnauthorized)
+		return
+	}
+
+	authHeader := r.Header.Get("Authorization")
+
+	idToken := strings.TrimPrefix(authHeader, "Bearer ")
+
+	if idToken != argoToken {
+		IncRequestErrorCounter("Unauthorized", "", action, r.URL.Path,
+			SEVERITY_MAJOR)
+		w.WriteHeader(http.StatusUnauthorized)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
+
+	profList, err := c.profileClient.List(metav1.ListOptions{})
+	if err != nil {
+		IncRequestErrorCounter(err.Error(), "", action, r.URL.Path,
+			SEVERITY_MAJOR)
+		w.WriteHeader(http.StatusForbidden)
+		writeResponse(w, []byte(err.Error()))
+		return
+	}
+
+	response := &ServiceResponse{
+		Output: Output{
+			Parameters: []map[string]interface{}{},
+		},
+	}
+	list, err := json.Marshal(profList.Items)
+	if err != nil {
+		IncRequestErrorCounter(err.Error(), "", action, r.URL.Path,
+			SEVERITY_MAJOR)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	json.Unmarshal(list, &response.Output.Parameters)
+
+	result, err := json.Marshal(response)
+	if err != nil {
+		IncRequestErrorCounter(err.Error(), "", action, r.URL.Path,
+			SEVERITY_MAJOR)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	IncRequestCounter("", "", action, r.URL.Path)
+	if writeResponse(w, result) {
+		w.WriteHeader(http.StatusOK)
+	} else {
+		w.WriteHeader(http.StatusInternalServerError)
+	}
+}
+
 func (c *KfamV1Alpha1Client) DeleteBinding(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
 	const action = "delete"
@@ -161,8 +268,8 @@ func (c *KfamV1Alpha1Client) DeleteBinding(w http.ResponseWriter, r *http.Reques
 	if err := json.NewDecoder(r.Body).Decode(&binding); err != nil {
 		IncRequestErrorCounter("decode error", "", action, r.URL.Path,
 			SEVERITY_MAJOR)
-		writeResponse(w, []byte(err.Error()))
 		w.WriteHeader(http.StatusForbidden)
+		writeResponse(w, []byte(err.Error()))
 		return
 	}
 	// check permission before delete
@@ -299,7 +406,7 @@ func (c *KfamV1Alpha1Client) isClusterAdmin(queryUser string) bool {
 	return false
 }
 
-//isOwnerOrAdmin return true if queryUser is cluster admin or profile owner
+// isOwnerOrAdmin return true if queryUser is cluster admin or profile owner
 func (c *KfamV1Alpha1Client) isOwnerOrAdmin(queryUser string, profileName string) bool {
 	isAdmin := c.isClusterAdmin(queryUser)
 	prof, err := c.profileClient.Get(profileName, metav1.GetOptions{})

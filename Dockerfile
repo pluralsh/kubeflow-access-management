@@ -1,15 +1,12 @@
-ARG GOLANG_VERSION=1.16.7
-FROM golang:${GOLANG_VERSION} as builder
+ARG GOLANG_VERSION=1.20
+FROM --platform=$BUILDPLATFORM golang:${GOLANG_VERSION} as builder
+ARG TARGETOS TARGETARCH
 
 WORKDIR /workspace
 
 COPY . .
 RUN go mod download
-RUN if [ "$(uname -m)" = "aarch64" ]; then \
-        CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -gcflags 'all=-N -l' -o access-management main.go; \
-    else \
-        CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -gcflags 'all=-N -l' -o access-management main.go; \
-    fi
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -gcflags 'all=-N -l' -o access-management main.go
 
 RUN chmod a+rx access-management
 
@@ -17,9 +14,7 @@ RUN chmod a+rx access-management
 # Refer to https://github.com/GoogleContainerTools/distroless for more details
 FROM gcr.io/distroless/base:latest as serve
 WORKDIR /
-COPY third_party third_party
 COPY --from=builder /workspace/access-management .
-COPY --from=builder /go/pkg/mod/github.com/hashicorp third_party/library/
 
 EXPOSE 8082
 
