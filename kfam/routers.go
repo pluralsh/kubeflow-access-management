@@ -47,6 +47,20 @@ func NewRouter(kfamV1Alpha1 KfamV1Alpha1Interface) *mux.Router {
 		},
 
 		Route{
+			"ListProfiles",
+			strings.ToUpper("Get"),
+			"/kfam/v1/profiles",
+			kfamV1Alpha1.ListProfiles,
+		},
+
+		Route{
+			"ArgoListProfiles",
+			strings.ToUpper("Post"),
+			"/api/v1/getparams.execute",
+			kfamV1Alpha1.ArgoListProfiles,
+		},
+
+		Route{
 			"CreateProfile",
 			strings.ToUpper("Post"),
 			"/kfam/v1/profiles",
